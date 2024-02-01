@@ -1,0 +1,112 @@
+- name: Install Grafana, Loki, and Promtail on Windows using NSSM
+  hosts: all
+  tasks:
+    - name: Ensure Chocolatey is installed
+      win_chocolatey:
+        name: chocolatey
+        state: present
+
+    - name: Install NSSM using Chocolatey
+      win_chocolatey:
+        name: nssm
+        state: present
+
+    - name: Create directory structure Loki
+      ansible.windows.win_file:
+        path: "{{ root_path }}/loki"
+        state: directory        
+
+    - name: Create directory structure Promtail
+      ansible.windows.win_file:
+        path: "{{ root_path }}/promtail"
+        state: directory  
+
+    - name: Download Loki binary for Windows
+      win_get_url:
+        url: "https://github.com/grafana/loki/releases/download/v2.8.6/loki-windows-amd64.exe.zip"
+        dest: "{{root_path}}/loki-windows-amd64.zip"
+        force: yes
+
+    - name: Unzip Loki binary
+      win_unzip:
+        src: "{{root_path}}/loki-windows-amd64.zip"
+        dest: "{{ root_path }}/loki"
+        creates: "{{ root_path }}/loki/loki-windows-amd64.exe"        
+
+    - name: Download Promtail binary for Windows
+      win_get_url:
+        url: "https://github.com/grafana/loki/releases/download/v2.8.6/promtail-windows-amd64.exe.zip"
+        dest: "{{root_path}}/promtail-windows-amd64.exe.zip"
+        force: yes
+
+    - name: Unzip Promtail binary
+      win_unzip:
+        src: "{{root_path}}/promtail-windows-amd64.exe.zip"
+        dest: "{{ root_path }}/promtail"
+        creates: "{{ root_path }}/promtail/promtail-windows-amd64.exe" 
+
+    - name: Install Loki
+      community.windows.win_nssm:
+        name: Loki
+        application: "{{ root_path }}/loki/loki-windows-amd64.exe"
+        stdout_file: "{{ root_path }}/loki/stdout.log"
+        stderr_file: "{{ root_path }}/loki/stderr.log"      
+        arguments: "-config.file={{ root_path }}/loki/loki-config.yaml"
+
+    - name: Install Promtail
+      community.windows.win_nssm:
+        name: Promtail
+        application: "{{ root_path }}/promtail/promtail-windows-amd64.exe"
+        stdout_file: "{{ root_path }}/promtail/stdout.log"
+        stderr_file: "{{ root_path }}/promtail/stderr.log"      
+        arguments: "-config.file={{ root_path }}/promtail/promtail-config.yaml"   
+
+    - name: Copy Loki Config
+      ansible.windows.win_copy:
+        src: loki-config.yaml
+        dest: "{{ root_path }}/loki/loki-config.yaml"       
+
+    - name: Copy Promtail Config
+      ansible.windows.win_copy:
+        src: promtail-config.yaml
+        dest: "{{ root_path }}/promtail/promtail-config.yaml"      
+
+    - name: Ensure grafana installed
+      register: task_result
+      until: task_result is not failed
+      retries: 3
+      win_chocolatey:
+        name: grafana
+        state: present
+        version: 10.2.0
+    
+    - name: Register Grafana as a Service
+      register: task_result
+      until: task_result is not failed
+      retries: 3
+      win_nssm:
+        name: Grafana
+        application: C:\ProgramData\chocolatey\lib\grafana\tools\grafana-10.2.0\bin\grafana-server.exe
+    
+    - name: Start Grafana Service
+      register: task_result
+      until: task_result is not failed
+      retries: 3
+      ansible.windows.win_service:
+        name: Grafana
+        state: started
+
+    - name: Start Loki service
+      win_service:
+        name: Loki
+        state: started
+        start_mode: auto
+
+    - name: Start Promtail service
+      win_service:
+        name: Promtail
+        state: started
+        start_mode: auto
+
+  vars:
+    root_path: "C:\\services\\"
